@@ -56,7 +56,7 @@ const PHARMA_AREAS = [
 ];
 
 function contentTypeFor(filePath) {
-  if (filePath.endsWith('.js')) {
+  if (filePath.endsWith('.js') || filePath.endsWith('.mjs')) {
     return 'application/javascript; charset=utf-8';
   }
   if (filePath.endsWith('.css')) {

@@ -16,7 +16,7 @@ function getStatusCounts(state) {
 function renderRoleCheckboxes(fieldName, selected) {
   const roles = ['author', 'reviewer', 'approver', 'trainer'];
   return roles
-    .map((role) => `<label><input type="checkbox" name="${fieldName}" value="${role}" ${selected.includes(role) ? 'checked' : ''} /> ${role}</label>`)
+    .map((role) => `<label class="check-inline"><input type="checkbox" name="${fieldName}" value="${role}" ${selected.includes(role) ? 'checked' : ''} /> ${role}</label>`)
     .join('');
 }
 
@@ -27,16 +27,31 @@ export function renderDashboard({ state, esc, fmtDate, icon }) {
     overdue: 0,
     completionRate: 0,
   };
+  const distribution = [
+    ['Draft', counts.Draft, 'status-draft'],
+    ['In Review', counts['In Review'], 'status-in-review'],
+    ['Approved', counts.Approved, 'status-approved'],
+    ['Effective', counts.Effective, 'status-effective'],
+    ['Superseded', counts.Superseded, 'status-superseded'],
+  ]
+    .map(([label, value, className]) => `
+      <div class="status-item">
+        <span class="status-segment ${className}" aria-hidden="true"></span>
+        <span class="muted">${esc(label)}: <strong>${esc(value)}</strong></span>
+      </div>
+    `)
+    .join('');
+
   const cards = [
     { status: 'all', label: 'Total SOPs', value: counts.total },
-    { status: 'Draft', label: 'Draft', value: counts.Draft },
-    { status: 'In Review', label: 'In Review', value: counts['In Review'] },
-    { status: 'Approved', label: 'Approved', value: counts.Approved },
-    { status: 'Effective', label: 'Effective', value: counts.Effective },
-    { status: 'Superseded', label: 'Superseded', value: counts.Superseded },
+    { status: 'Draft', label: 'Draft', value: counts.Draft, className: 'status-draft' },
+    { status: 'In Review', label: 'In Review', value: counts['In Review'], className: 'status-in-review' },
+    { status: 'Approved', label: 'Approved', value: counts.Approved, className: 'status-approved' },
+    { status: 'Effective', label: 'Effective', value: counts.Effective, className: 'status-effective' },
+    { status: 'Superseded', label: 'Superseded', value: counts.Superseded, className: 'status-superseded' },
   ]
     .map((item) => `
-      <button class="stat" data-action="open-sop-list-status" data-status="${esc(item.status)}">
+      <button class="stat ${esc(item.className || '')}" data-action="open-sop-list-status" data-status="${esc(item.status)}">
         <span class="muted">${esc(item.label)}</span>
         <strong>${esc(item.value)}</strong>
       </button>
@@ -63,6 +78,7 @@ export function renderDashboard({ state, esc, fmtDate, icon }) {
         <div class="message"><strong>Operational flow:</strong> Create SOP -> Edit -> Validate -> Review -> Approve -> Publish -> Train.</div>
         <div class="muted">Each status card opens the matching filtered SOP list.</div>
         <div class="stat-grid">${cards}</div>
+        <div class="status-distribution">${distribution}</div>
         <div class="actions">
           <a class="btn primary" href="#/sops/create">${icon('create', 'btn-icon')}<span>Create New SOP</span></a>
           <a class="btn" href="#/sops">${icon('sops', 'btn-icon')}<span>Open SOP List</span></a>
@@ -92,7 +108,10 @@ export function renderDashboard({ state, esc, fmtDate, icon }) {
       </div>
     </section>
     <section class="card">
-      <div class="card-head"><h3>Recently Updated SOPs</h3></div>
+      <div class="card-head">
+        <h3>Recently Updated SOPs</h3>
+        <a class="btn" href="#/sops">View all</a>
+      </div>
       <div class="card-body table-wrap">
         <table>
           <thead><tr><th>Code</th><th>Title</th><th>Status</th><th>Updated</th><th></th></tr></thead>
@@ -135,23 +154,40 @@ export function renderUserManagement({ state, esc }) {
     .map((item) => `<option value="${esc(item.id)}" ${current?.id === item.id ? 'selected' : ''}>${esc(item.username)} - ${esc(item.displayName || item.username)}</option>`)
     .join('');
 
+  const tabs = [
+    ['list', 'User List'],
+    ['create', 'Create User'],
+    ['edit', 'Edit User'],
+  ]
+    .map(([tab, label]) => `<button class="tab-btn ${state.userManagementTab === tab ? 'active' : ''}" type="button" data-action="set-user-tab" data-tab="${tab}">${label}</button>`)
+    .join('');
+
   return `
     <section class="card">
       <div class="card-head">
         <h3>User Management</h3>
         <button class="btn" data-action="refresh-users">Refresh</button>
       </div>
-      <div class="card-body table-wrap">
+      <div class="card-body compact">
+        <div class="studio-tabs">${tabs}</div>
+      </div>
+      <div class="card-body">
+        ${state.userManagementTab === 'list' ? `
+      <div class="row spaced panel-inline-head">
+        <strong>Users</strong>
+        <button class="btn primary" type="button" data-action="set-user-tab" data-tab="create">+ Create User</button>
+      </div>
+      <div class="table-wrap">
         <table>
           <thead><tr><th>Username</th><th>Display Name</th><th>Department</th><th>Primary Role</th><th>Essential Roles</th><th>Status</th><th>Password Mode</th><th></th></tr></thead>
           <tbody>${rows || '<tr><td colspan="8">No users found.</td></tr>'}</tbody>
         </table>
       </div>
-    </section>
+    ` : ''}
 
-    <section class="card">
-      <div class="card-head"><h3>Create User</h3></div>
-      <form class="card-body" data-action="create-user">
+        ${state.userManagementTab === 'create' ? `
+      <form class="stack-form" data-action="create-user">
+        <div class="row spaced panel-inline-head"><strong>Create User</strong></div>
         <div class="grid-3">
           <label>Username <input name="username" required placeholder="qa.operator" /></label>
           <label>Display Name <input name="displayName" required placeholder="QA Operator" /></label>
@@ -174,20 +210,21 @@ export function renderUserManagement({ state, esc }) {
             <div class="muted">Essential Roles</div>
             <div class="grid-2">${renderRoleCheckboxes('essentialRoles', ['author'])}</div>
           </div>
-          <label>Initial Password (optional, empty = passwordless)
+          <label>Initial Password (leave empty for passwordless)
             <input name="password" type="password" />
           </label>
         </div>
-        <label><input type="checkbox" name="active" checked /> Active account</label>
+        <label class="check-inline"><input type="checkbox" name="active" checked /> Active account</label>
         <div class="actions">
           <button class="btn primary" type="submit">Create User</button>
+          <button class="btn" type="button" data-action="set-user-tab" data-tab="list">Back to list</button>
         </div>
       </form>
-    </section>
+    ` : ''}
 
-    <section class="card">
-      <div class="card-head"><h3>Edit User</h3></div>
-      <form class="card-body" data-action="update-user">
+        ${state.userManagementTab === 'edit' ? `
+      <form class="stack-form" data-action="update-user">
+        <div class="row spaced panel-inline-head"><strong>Edit User</strong></div>
         <label>User
           <select name="userId" data-action="set-user-edit-target">
             ${userSelectOptions || '<option value="">No user</option>'}
@@ -209,7 +246,7 @@ export function renderUserManagement({ state, esc }) {
                 <option value="admin" ${current.role === 'admin' ? 'selected' : ''}>admin</option>
               </select>
             </label>
-            <label>Reset Password (optional)
+            <label>Reset Password
               <input name="password" type="password" />
             </label>
           </div>
@@ -217,12 +254,15 @@ export function renderUserManagement({ state, esc }) {
             <div class="muted">Essential Roles</div>
             <div class="grid-2">${renderRoleCheckboxes('essentialRoles', current.essentialRoles || [])}</div>
           </div>
-          <label><input type="checkbox" name="active" ${current.active ? 'checked' : ''} /> Active account</label>
+          <label class="check-inline"><input type="checkbox" name="active" ${current.active ? 'checked' : ''} /> Active account</label>
           <div class="actions">
             <button class="btn primary" type="submit">Save User</button>
+            <button class="btn" type="button" data-action="set-user-tab" data-tab="list">Back to list</button>
           </div>
         ` : '<div class="muted">No user selected.</div>'}
       </form>
+    ` : ''}
+      </div>
     </section>
   `;
 }

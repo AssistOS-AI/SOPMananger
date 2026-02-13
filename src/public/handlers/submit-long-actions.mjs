@@ -109,6 +109,7 @@ export async function handleRunAssuranceTask(form, ctx) {
     state,
     api,
     loadTasks,
+    loadTask,
     pollTask,
     setMessage,
   } = ctx;
@@ -130,19 +131,37 @@ export async function handleRunAssuranceTask(form, ctx) {
     },
   });
   await loadTasks();
-  const completed = await pollTask(task.id, { attempts: 70, intervalMs: 1000 });
-  setMessage(completed?.status === 'completed'
-    ? 'Assurance scan completed.'
-    : 'Assurance scan ended with failure.');
+  if (typeof loadTask === 'function') {
+    await loadTask(task.id);
+  }
+  setMessage(`Assurance scan started as task ${task.id}. Monitor progress in Task Monitor.`);
+
+  void (async () => {
+    try {
+      const completed = await pollTask(task.id, { attempts: 90, intervalMs: 1200 });
+      await loadTasks();
+      if (!completed) {
+        return;
+      }
+      setMessage(
+        completed.status === 'completed'
+          ? `Assurance task ${task.id} completed.`
+          : `Assurance task ${task.id} finished with status ${completed.status}.`,
+      );
+    } catch {
+      // non-blocking background completion check
+    }
+  })();
 }
 
 export async function handleRunGenerationTask(form, ctx) {
   const {
+    state,
     api,
     loadTasks,
+    loadTask,
     pollTask,
     loadSops,
-    navigate,
     setMessage,
   } = ctx;
 
@@ -157,27 +176,42 @@ export async function handleRunGenerationTask(form, ctx) {
     },
   });
   await loadTasks();
-  const completed = await pollTask(task.id, { attempts: 70, intervalMs: 1000 });
-
-  if (completed?.status === 'completed' && autoCreate && completed.result) {
-    const created = await api('/api/sops', {
-      method: 'POST',
-      body: {
-        title: completed.result.title || 'Generated SOP',
-        area: 'Generated',
-        targetRoles: ['author', 'reviewer'],
-        document: completed.result,
-      },
-    });
-    await loadSops();
-    navigate(`/sops/${created.meta.id}/edit`);
-    setMessage(`Generated draft created as SOP ${created.meta.code}.`);
-    return;
+  if (typeof loadTask === 'function') {
+    await loadTask(task.id);
   }
+  state.selectedTaskId = task.id;
+  setMessage(`Generation task ${task.id} started. Follow progress in Task Monitor.`);
 
-  setMessage(completed?.status === 'completed'
-    ? 'Generation task completed.'
-    : 'Generation task failed.');
+  void (async () => {
+    try {
+      const completed = await pollTask(task.id, { attempts: 90, intervalMs: 1200 });
+      await loadTasks();
+      if (!completed) {
+        return;
+      }
+      if (completed.status === 'completed' && autoCreate && completed.result) {
+        const created = await api('/api/sops', {
+          method: 'POST',
+          body: {
+            title: completed.result.title || 'Generated SOP',
+            area: 'Generated',
+            targetRoles: ['author', 'reviewer'],
+            document: completed.result,
+          },
+        });
+        await loadSops();
+        setMessage(`Generation task ${task.id} completed and created SOP ${created.meta.code}.`);
+        return;
+      }
+      setMessage(
+        completed.status === 'completed'
+          ? `Generation task ${task.id} completed.`
+          : `Generation task ${task.id} finished with status ${completed.status}.`,
+      );
+    } catch {
+      // non-blocking background completion check
+    }
+  })();
 }
 
 export async function handleCreateAutomationJob(form, ctx) {

@@ -1,15 +1,16 @@
+import { handleTrainingClickAction } from './click-training-actions.mjs';
+
 export async function handleClick(event, ctx) {
   const {
     state,
     withBusy,
     api,
     setMessage,
+    render,
     defaultChatMessages,
     stopAssistantProgressStream,
     deepClone,
     loadUsers,
-    loadTraining,
-    loadTrainingOverview,
     loadAuditEvents,
     refreshAuditVerification,
     collectEditorDocument,
@@ -20,6 +21,7 @@ export async function handleClick(event, ctx) {
     loadTask,
     loadAutomationJobs,
     loadTemplates,
+    stopTaskBadgePolling,
   } = ctx;
 
   const el = event.target.closest('[data-action]');
@@ -37,15 +39,21 @@ export async function handleClick(event, ctx) {
   const action = el.dataset.action;
   await withBusy(async () => {
     try {
-      if (action === 'clear-message') {
+      if (action === 'clear-message' || action === 'close-message') {
         state.message = null;
         return;
       }
 
       if (action === 'logout') {
+        if (state.editorDirty && !window.confirm('You have unsaved SOP edits. Logout anyway?')) {
+          return;
+        }
         await api('/api/auth/logout', { method: 'POST', body: {} });
         if (ctx.clearChatHistoryPersistTimer) {
           ctx.clearChatHistoryPersistTimer();
+        }
+        if (typeof stopTaskBadgePolling === 'function') {
+          stopTaskBadgePolling();
         }
         stopAssistantProgressStream();
         state.session = null;
@@ -57,6 +65,29 @@ export async function handleClick(event, ctx) {
         state.chatHistoryLoadedForUserId = null;
         state.chatToolsOpen = false;
         render();
+        return;
+      }
+
+      if (action === 'set-user-tab') {
+        state.userManagementTab = el.dataset.tab || 'list';
+        if (state.userManagementTab === 'edit' && !state.userEditTargetId && state.users.length) {
+          state.userEditTargetId = state.users[0].id;
+        }
+        return;
+      }
+
+      if (action === 'set-settings-tab') {
+        state.settingsTab = el.dataset.tab || 'security';
+        return;
+      }
+
+      if (action === 'set-automation-tab') {
+        state.automationTab = el.dataset.tab || 'assurance';
+        return;
+      }
+
+      if (action === 'toggle-automation-create-job') {
+        state.automationShowCreateJob = !state.automationShowCreateJob;
         return;
       }
 
@@ -82,57 +113,7 @@ export async function handleClick(event, ctx) {
         return;
       }
 
-      if (action === 'apply-training-filter') {
-        const sopId = state.trainingFilterSopId === 'all' ? null : state.trainingFilterSopId;
-        const status = state.trainingFilterStatus === 'all' ? null : state.trainingFilterStatus;
-        await Promise.all([
-          loadTraining({ sopId, status }),
-          loadTrainingOverview({ sopId }),
-        ]);
-        setMessage('Training filter applied.');
-        return;
-      }
-
-      if (action === 'refresh-training') {
-        const sopId = state.trainingFilterSopId === 'all' ? null : state.trainingFilterSopId;
-        const status = state.trainingFilterStatus === 'all' ? null : state.trainingFilterStatus;
-        await Promise.all([
-          loadTraining({ sopId, status }),
-          loadTrainingOverview({ sopId }),
-        ]);
-        setMessage('Training refreshed.');
-        return;
-      }
-
-      if (action === 'training-mark-read') {
-        const taskId = el.dataset.taskId;
-        await api(`/api/training/tasks/${encodeURIComponent(taskId)}/read`, {
-          method: 'POST',
-          body: {},
-        });
-        const sopId = state.trainingFilterSopId === 'all' ? null : state.trainingFilterSopId;
-        const status = state.trainingFilterStatus === 'all' ? null : state.trainingFilterStatus;
-        await Promise.all([
-          loadTraining({ sopId, status }),
-          loadTrainingOverview({ sopId }),
-        ]);
-        setMessage(`Read acknowledgement recorded for ${taskId}.`);
-        return;
-      }
-
-      if (action === 'training-signoff') {
-        const taskId = el.dataset.taskId;
-        await api(`/api/training/tasks/${encodeURIComponent(taskId)}/signoff`, {
-          method: 'POST',
-          body: {},
-        });
-        const sopId = state.trainingFilterSopId === 'all' ? null : state.trainingFilterSopId;
-        const status = state.trainingFilterStatus === 'all' ? null : state.trainingFilterStatus;
-        await Promise.all([
-          loadTraining({ sopId, status }),
-          loadTrainingOverview({ sopId }),
-        ]);
-        setMessage(`Training sign-off recorded for ${taskId}.`);
+      if (await handleTrainingClickAction(action, el, ctx)) {
         return;
       }
 
@@ -178,12 +159,17 @@ export async function handleClick(event, ctx) {
           title: 'New Section',
           text: '',
         });
+        state.editorDirty = true;
         return;
       }
 
       if (action === 'remove-editor-section') {
         const index = Number(el.dataset.index);
+        if (!window.confirm('Remove this section?')) {
+          return;
+        }
         state.workingDoc.sections.splice(index, 1);
+        state.editorDirty = true;
         return;
       }
 
@@ -197,23 +183,33 @@ export async function handleClick(event, ctx) {
           records: [],
           exceptions: [],
         });
+        state.editorDirty = true;
         return;
       }
 
       if (action === 'remove-editor-step') {
         const index = Number(el.dataset.index);
+        if (!window.confirm('Remove this process step?')) {
+          return;
+        }
         state.workingDoc.processModel.steps.splice(index, 1);
+        state.editorDirty = true;
         return;
       }
 
       if (action === 'add-editor-ref') {
         state.workingDoc.references.push({ label: '', type: '', target: '' });
+        state.editorDirty = true;
         return;
       }
 
       if (action === 'remove-editor-ref') {
         const index = Number(el.dataset.index);
+        if (!window.confirm('Remove this reference?')) {
+          return;
+        }
         state.workingDoc.references.splice(index, 1);
+        state.editorDirty = true;
         return;
       }
 
@@ -241,6 +237,7 @@ export async function handleClick(event, ctx) {
             };
           }
         }
+        state.editorDirty = true;
         setMessage('Interview summary applied to document.');
         return;
       }
@@ -250,6 +247,7 @@ export async function handleClick(event, ctx) {
           throw new Error('Extract process model first.');
         }
         state.workingDoc.processModel.steps = deepClone(state.processExtraction.steps);
+        state.editorDirty = true;
         setMessage('Process model applied.');
         return;
       }
@@ -265,6 +263,9 @@ export async function handleClick(event, ctx) {
       }
 
       if (action === 'transition-review') {
+        if (!window.confirm('Submit this SOP to In Review?')) {
+          return;
+        }
         await api(`/api/sops/${encodeURIComponent(state.currentSopId)}/workflow/transition`, {
           method: 'POST',
           body: {
@@ -281,6 +282,9 @@ export async function handleClick(event, ctx) {
       }
 
       if (action === 'publish-sop') {
+        if (!window.confirm('Publish this SOP as Effective and generate training assignments?')) {
+          return;
+        }
         await api(`/api/sops/${encodeURIComponent(state.currentSopId)}/publish`, {
           method: 'POST',
           body: {},
@@ -340,6 +344,25 @@ export async function handleClick(event, ctx) {
         return;
       }
 
+      if (action === 'create-sop-from-task-draft') {
+        if (!state.selectedTask?.result) {
+          throw new Error('Selected task has no draft result.');
+        }
+        const created = await api('/api/sops', {
+          method: 'POST',
+          body: {
+            title: state.selectedTask.result.title || 'Generated SOP',
+            area: 'Generated',
+            targetRoles: ['author', 'reviewer'],
+            document: state.selectedTask.result,
+          },
+        });
+        await loadSops();
+        ctx.navigate(`/sops/${created.meta.id}/edit`);
+        setMessage(`Created SOP ${created.meta.code} from selected task.`);
+        return;
+      }
+
       if (action === 'refresh-automation-jobs') {
         await loadAutomationJobs();
         setMessage('Automation jobs refreshed.');
@@ -374,6 +397,37 @@ export async function handleClick(event, ctx) {
         });
         await loadAutomationJobs();
         setMessage(`Automation job ${jobId} ${enabled ? 'disabled' : 'enabled'}.`);
+        return;
+      }
+
+      if (action === 'set-sop-links-tab') {
+        state.sopLinksTab = el.dataset.tab || 'impact';
+        return;
+      }
+
+      if (action === 'select-history-version') {
+        state.selectedHistoryVersionId = el.dataset.versionId || null;
+        return;
+      }
+
+      if (action === 'load-template-section-defaults') {
+        const form = el.closest('form[data-action=\"create-template\"]');
+        if (!form) {
+          return;
+        }
+        const defaults = [
+          { id: 'purpose', title: 'Purpose', guidance: 'Define objective and intended outcome.' },
+          { id: 'scope', title: 'Scope', guidance: 'Define applicability, boundaries, and exclusions.' },
+          { id: 'responsibilities', title: 'Responsibilities', guidance: 'List accountable and supporting roles.' },
+          { id: 'procedure', title: 'Procedure', guidance: 'Describe steps and acceptance criteria.' },
+          { id: 'records', title: 'Records', guidance: 'Define records, storage, retention, and integrity controls.' },
+          { id: 'exceptions', title: 'Exceptions', guidance: 'Define deviation handling and escalation path.' },
+        ];
+        const target = form.querySelector('[name=\"sectionsJson\"]');
+        if (target) {
+          target.value = JSON.stringify(defaults, null, 2);
+        }
+        setMessage('Loaded default section guidance JSON.');
         return;
       }
 

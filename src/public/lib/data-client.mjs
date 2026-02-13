@@ -235,6 +235,9 @@ export function createDataClient({
       state.validation = null;
       state.impact = null;
       state.sopTrainingTasks = [];
+      state.editorDirty = false;
+      state.selectedHistoryVersionId = null;
+      state.releaseToStatus = '';
       return;
     }
 
@@ -252,6 +255,9 @@ export function createDataClient({
     state.reviewComments = comments.items || [];
     state.impact = impact;
     state.sopTrainingTasks = training.items || [];
+    state.editorDirty = false;
+    state.selectedHistoryVersionId = state.versions[state.versions.length - 1]?.versionId || null;
+    state.releaseToStatus = '';
     state.workingDoc = deepClone(sop.latestVersion?.document || {
       title: sop.meta.title,
       sections: [],
@@ -336,6 +342,9 @@ export function createDataClient({
     }
     const data = await api(`/api/tasks?${params.toString()}`);
     state.tasks = data.items || [];
+    if (!type) {
+      state.activeTaskCount = state.tasks.filter((task) => !['completed', 'failed'].includes(task.status)).length;
+    }
   }
 
   async function loadTask(taskId) {

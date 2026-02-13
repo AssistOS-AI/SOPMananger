@@ -64,5 +64,13 @@ export async function handleChange(event, ctx) {
   }
   if (action === 'set-template') {
     state.selectedTemplateId = el.value || '';
+    return;
+  }
+  if (action === 'chat-message-input') {
+    return;
+  }
+  if (action === 'set-release-status') {
+    state.releaseToStatus = el.value || '';
+    render();
   }
 }

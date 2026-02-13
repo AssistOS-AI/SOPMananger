@@ -60,11 +60,11 @@ export function registerAuthUserChatRoutes({
   );
 
   registerRoute(
-    { method: 'GET', pattern: '/api/auth/session', auth: true },
+    { method: 'GET', pattern: '/api/auth/session' },
     async ({ res, session }) => {
       sendJson(res, 200, {
-        user: session.user,
-        csrfToken: session.csrfToken,
+        user: session?.user || null,
+        csrfToken: session?.csrfToken || '',
       });
     },
   );

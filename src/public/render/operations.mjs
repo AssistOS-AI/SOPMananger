@@ -1,9 +1,17 @@
 function renderTemplateCheckboxGroup(name, values = [], selected = [], esc) {
   return values
     .map((value) => `
-      <label><input type="checkbox" name="${name}" value="${esc(value)}" ${selected.includes(value) ? 'checked' : ''} /> ${esc(value)}</label>
+      <label class="check-inline"><input type="checkbox" name="${name}" value="${esc(value)}" ${selected.includes(value) ? 'checked' : ''} /> ${esc(value)}</label>
     `)
     .join('');
+}
+
+function renderMarkdownBasic(text, esc) {
+  const safe = esc(text || '');
+  return safe
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br />');
 }
 
 export function renderAssistant({ state, esc, fmtBytes, fmtDate, icon }) {
@@ -39,7 +47,7 @@ export function renderAssistant({ state, esc, fmtBytes, fmtDate, icon }) {
               <strong>${esc(entry.role === 'assistant' ? 'SOP Agent' : 'You')}</strong>
               <span class="muted">${fmtDate(entry.at)}</span>
             </div>
-            <div class="chat-text">${esc(entry.text || '')}</div>
+            <div class="chat-text">${renderMarkdownBasic(entry.text || '', esc)}</div>
             ${attachmentRows ? `<ul class="chat-attachment-list">${attachmentRows}</ul>` : ''}
             ${streaming}
             ${actions}
@@ -53,7 +61,7 @@ export function renderAssistant({ state, esc, fmtBytes, fmtDate, icon }) {
     <section class="card chat-shell-card">
       <div class="card-head">
         <h3>Agent Chat</h3>
-        <div class="muted">Use Tools for context, quick actions, and approval credentials.</div>
+        <div class="muted">Use Tools for quick actions and approval credentials.</div>
       </div>
       <div class="chat-thread-wrap">
         <ul class="chat-thread">${history}</ul>
@@ -61,11 +69,17 @@ export function renderAssistant({ state, esc, fmtBytes, fmtDate, icon }) {
       <form class="chat-composer" id="chat-composer-form" data-action="send-chat-message">
         <input id="chat-file-input" data-action="chat-file-input" type="file" multiple hidden />
         <div class="chat-input-row">
-          <textarea name="message" placeholder="Write a command or ask for help..."></textarea>
+          <textarea name="message" data-action="chat-message-input" placeholder="Write a command or ask for help..."></textarea>
         </div>
         ${pendingAttachments ? `<div class="chat-pending-list">${pendingAttachments}</div>` : ''}
         <div class="chat-composer-actions">
           <div class="chat-actions-left">
+            <label>Current SOP
+              <select data-action="set-chat-context">${contextOptions}</select>
+            </label>
+            ${state.currentSopId
+    ? `<span class="badge">${esc(state.sops.find((item) => item.id === state.currentSopId)?.code || state.currentSopId)}</span>`
+    : '<span class="badge">No SOP context</span>'}
             <button class="btn" type="button" data-action="open-chat-file-picker">${icon('attach', 'btn-icon')}<span>Attach Files</span></button>
             <div class="chat-tools-wrap">
               <button class="btn" type="button" data-action="toggle-chat-tools">${icon('tools', 'btn-icon')}<span>${state.chatToolsOpen ? 'Hide Tools' : 'Tools'}</span></button>
@@ -78,17 +92,9 @@ export function renderAssistant({ state, esc, fmtBytes, fmtDate, icon }) {
                     <button class="btn" type="button" data-action="chat-quick" data-command="run assurance scan">${icon('automation', 'btn-icon')}<span>Run Assurance</span></button>
                     <button class="btn" type="button" data-action="chat-quick" data-command="training status">${icon('training', 'btn-icon')}<span>Training Status</span></button>
                   </div>
-                  <div class="grid-2">
-                    <label>Current SOP
-                      <select data-action="set-chat-context">${contextOptions}</select>
-                    </label>
-                    <label>Approval Password (optional)
-                      <input name="password" type="password" />
-                    </label>
-                  </div>
-                  <div class="actions">
-                    <button class="btn" type="button" data-action="open-chat-file-picker">${icon('attach', 'btn-icon')}<span>Add Attachments</span></button>
-                  </div>
+                  <label>Approval Password
+                    <input name="password" type="password" />
+                  </label>
                 </div>
               `
     : ''}
@@ -105,7 +111,7 @@ export function renderAutomation({ state, esc, fmtDate }) {
   const profile = state.settings?.regulatoryProfile || null;
   const canManageJobs = state.session?.role === 'admin';
   const checkOptions = (state.assuranceCheckCatalog || [])
-    .map((item) => `<label><input type="checkbox" name="check" value="${esc(item.id)}" ${profile?.assuranceChecks?.includes(item.id) ? 'checked' : ''} /> ${esc(item.label)}</label>`)
+    .map((item) => `<label class="check-inline"><input type="checkbox" name="check" value="${esc(item.id)}" ${profile?.assuranceChecks?.includes(item.id) ? 'checked' : ''} /> ${esc(item.label)}</label>`)
     .join('');
 
   const jobRows = state.automationJobs
@@ -127,21 +133,19 @@ export function renderAutomation({ state, esc, fmtDate }) {
     `)
     .join('');
 
-  return `
-    <section class="card">
-      <div class="card-head"><h3>Automation & Scans</h3></div>
-      <div class="card-body">
-        <div class="message">
-          Active regulatory profile:
-          <strong>${esc(profile?.profileName || 'Not configured')}</strong>.
-          Update profile in <a href="#/settings">Settings</a>.
-        </div>
-      </div>
-    </section>
+  const tabs = [
+    ['assurance', 'Assurance Scan'],
+    ['generation', 'Draft Generation'],
+    ['jobs', 'Scheduled Jobs'],
+  ]
+    .map(([tab, label]) => `<button class="tab-btn ${state.automationTab === tab ? 'active' : ''}" type="button" data-action="set-automation-tab" data-tab="${tab}">${label}</button>`)
+    .join('');
 
-    <section class="card">
-      <div class="card-head"><h3>Run Assurance Scan (Manual)</h3></div>
-      <form class="card-body" data-action="run-assurance-task">
+  let panelHtml = '';
+  if (state.automationTab === 'assurance') {
+    panelHtml = `
+      <form class="stack-form" data-action="run-assurance-task">
+        <div class="row spaced panel-inline-head"><strong>Run Assurance Scan</strong></div>
         <div class="grid-3">
           <label>Title <input name="title" value="Comprehensive SOP Assurance Scan" /></label>
           <label>Scope
@@ -150,7 +154,7 @@ export function renderAutomation({ state, esc, fmtDate }) {
               <option value="selected">Selected SOP only</option>
             </select>
           </label>
-          <label>Target SOP (optional)
+          <label>Target SOP
             <select name="selectedSopId">
               <option value="">Use selected context</option>
               ${state.sops.map((item) => `<option value="${esc(item.id)}">${esc(item.code)} - ${esc(item.title)}</option>`).join('')}
@@ -168,11 +172,11 @@ export function renderAutomation({ state, esc, fmtDate }) {
           <a class="btn" href="#/tasks">Open Task Monitor</a>
         </div>
       </form>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><h3>Structured Draft Generation</h3></div>
-      <form class="card-body" data-action="run-generation-task">
+    `;
+  } else if (state.automationTab === 'generation') {
+    panelHtml = `
+      <form class="stack-form" data-action="run-generation-task">
+        <div class="row spaced panel-inline-head"><strong>Structured Draft Generation</strong></div>
         <div class="grid-2">
           <label>Draft Title <input name="title" value="Generated SOP Draft" /></label>
           <label>Create SOP from result
@@ -191,13 +195,19 @@ export function renderAutomation({ state, esc, fmtDate }) {
           <button class="btn primary" type="submit">Start Generation Task</button>
         </div>
       </form>
-    </section>
-
-    <section class="card">
-      <div class="card-head"><h3>Scheduled Jobs (Cron-like)</h3></div>
-      ${canManageJobs
+    `;
+  } else {
+    panelHtml = `
+      <div class="row spaced panel-inline-head">
+        <strong>Scheduled Jobs (Cron-like)</strong>
+        <div class="actions">
+          ${canManageJobs ? `<button class="btn primary" type="button" data-action="toggle-automation-create-job">${state.automationShowCreateJob ? 'Close Create Job' : '+ Create Job'}</button>` : ''}
+          <button class="btn" type="button" data-action="refresh-automation-jobs">Refresh Jobs</button>
+        </div>
+      </div>
+      ${canManageJobs && state.automationShowCreateJob
     ? `
-      <form class="card-body" data-action="create-automation-job">
+      <form class="stack-form" data-action="create-automation-job">
         <div class="grid-3">
           <label>Title <input name="title" required value="Nightly assurance sweep" /></label>
           <label>Type
@@ -215,21 +225,34 @@ export function renderAutomation({ state, esc, fmtDate }) {
         <label>General Narrative Context <textarea name="narrative"></textarea></label>
         <div class="actions">
           <button class="btn primary" type="submit">Create Scheduled Job</button>
-          <button class="btn" type="button" data-action="refresh-automation-jobs">Refresh Jobs</button>
         </div>
       </form>
       `
     : `
-      <div class="card-body">
-        <div class="message">Only admin can create or edit scheduled jobs. Existing schedules remain visible below.</div>
-        <div class="actions"><button class="btn" type="button" data-action="refresh-automation-jobs">Refresh Jobs</button></div>
-      </div>
+      <div class="message">${canManageJobs ? 'Use + Create Job to define a scheduled run.' : 'Only admin can create or edit scheduled jobs. Existing schedules remain visible below.'}</div>
       `}
-      <div class="card-body table-wrap">
+      <div class="table-wrap">
         <table>
           <thead><tr><th>Title</th><th>Type</th><th>Interval</th><th>Status</th><th>Next Run</th><th>Last Run</th><th>Actions</th></tr></thead>
           <tbody>${jobRows || '<tr><td colspan="7">No scheduled jobs configured.</td></tr>'}</tbody>
         </table>
+      </div>
+    `;
+  }
+
+  return `
+    <section class="card">
+      <div class="card-head"><h3>Automation & Scans</h3></div>
+      <div class="card-body compact">
+        <div class="message">
+          Active regulatory profile:
+          <strong>${esc(profile?.profileName || 'Not configured')}</strong>.
+          Update profile in <a href="#/settings">Settings</a>.
+        </div>
+        <div class="studio-tabs">${tabs}</div>
+      </div>
+      <div class="card-body">
+        ${panelHtml}
       </div>
     </section>
   `;
@@ -251,20 +274,53 @@ export function renderTasks({ state, esc, fmtDate }) {
     `)
     .join('');
 
-  const detail = state.selectedTask
-    ? `<pre>${esc(JSON.stringify(state.selectedTask, null, 2))}</pre>`
+  const task = state.selectedTask;
+  const progressValue = Math.max(0, Math.min(100, Number(task?.progress || 0)));
+  const detail = task
+    ? `
+      <div class="task-detail-grid">
+        <article class="section-card"><strong>Task ID</strong><div class="muted">${esc(task.id)}</div></article>
+        <article class="section-card"><strong>Type</strong><div class="muted">${esc(task.type)}</div></article>
+        <article class="section-card"><strong>Status</strong><div><span class="badge ${esc(task.status || '')}">${esc(task.status || '-')}</span></div></article>
+        <article class="section-card">
+          <strong>Progress</strong>
+          <progress class="progress-meter" value="${esc(progressValue)}" max="100"></progress>
+          <div class="muted">${esc(progressValue)}%</div>
+        </article>
+      </div>
+      <div class="grid-2">
+        <article class="section-card">
+          <strong>Timing</strong>
+          <div class="muted">Created: ${fmtDate(task.createdAt)}</div>
+          <div class="muted">Started: ${fmtDate(task.startedAt)}</div>
+          <div class="muted">Finished: ${fmtDate(task.finishedAt)}</div>
+        </article>
+        <article class="section-card">
+          <strong>Result Summary</strong>
+          <div class="muted">${esc(task.error ? `Error: ${task.error}` : 'No error')}</div>
+          <div class="muted">${task.result ? 'Result payload available.' : 'No result payload.'}</div>
+          ${task.type === 'sop-draft-generation' && task.result ? '<button class="btn primary" type="button" data-action="create-sop-from-task-draft">Create SOP from this draft</button>' : ''}
+        </article>
+      </div>
+      <details>
+        <summary>Raw Task JSON</summary>
+        <pre>${esc(JSON.stringify(task, null, 2))}</pre>
+      </details>
+    `
     : '<div class="muted">Select a task to inspect details.</div>';
 
   return `
     <section class="card">
-      <div class="card-head">
-        <h3>Task Monitor</h3>
-        <div class="actions">
+      <div class="card-head"><h3>Task Monitor</h3></div>
+      <div class="card-body compact filter-inline grid-2">
+        <label>Task Type
           <select data-action="set-task-type-filter">
             <option value="all" ${taskType === 'all' ? 'selected' : ''}>All task types</option>
             <option value="assurance-scan" ${taskType === 'assurance-scan' ? 'selected' : ''}>assurance-scan</option>
             <option value="sop-draft-generation" ${taskType === 'sop-draft-generation' ? 'selected' : ''}>sop-draft-generation</option>
           </select>
+        </label>
+        <div class="actions">
           <button class="btn" data-action="refresh-tasks">Refresh</button>
         </div>
       </div>
@@ -337,7 +393,7 @@ export function renderTemplates({ state, esc }) {
       <div class="card-head"><h3>Create Template</h3></div>
       <form class="card-body" data-action="create-template">
         <div class="grid-2">
-          <label>Template ID (optional)<input name="id" placeholder="tpl-site-cleaning" /></label>
+          <label>Template ID<input name="id" placeholder="tpl-site-cleaning" /></label>
           <label>Title<input name="title" required /></label>
         </div>
         <label>Description<textarea name="description"></textarea></label>
@@ -352,6 +408,9 @@ export function renderTemplates({ state, esc }) {
         <label>Section Guidance JSON
           <textarea name="sectionsJson" placeholder='[{"id":"purpose","title":"Purpose","guidance":"..."}]'></textarea>
         </label>
+        <div class="actions">
+          <button class="btn" type="button" data-action="load-template-section-defaults">Load defaults</button>
+        </div>
         <div class="actions">
           <button class="btn primary" type="submit">Create Template</button>
         </div>

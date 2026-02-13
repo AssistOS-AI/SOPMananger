@@ -28,8 +28,11 @@ export function renderSopList({ state, esc, fmtDate }) {
 
   return `
     <section class="card">
-      <div class="card-head"><h3>SOP List</h3></div>
-      <form class="card-body grid-3" data-action="apply-sop-list-filter">
+      <div class="card-head">
+        <h3>SOP List</h3>
+        <a class="btn primary" href="#/sops/create">Create SOP</a>
+      </div>
+      <form class="card-body compact list-filter-toolbar" data-action="apply-sop-list-filter">
         <label>Status
           <select name="status">
             <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>All</option>
@@ -45,12 +48,8 @@ export function renderSopList({ state, esc, fmtDate }) {
         </label>
         <div class="actions">
           <button class="btn primary" type="submit">Apply</button>
-          <a class="btn" href="#/sops/create">Create SOP</a>
         </div>
       </form>
-    </section>
-    <section class="card">
-      <div class="card-head"><h3>Results (${filtered.length})</h3></div>
       <div class="card-body table-wrap">
         <table>
           <thead><tr><th>Code</th><th>Title</th><th>Area</th><th>Status</th><th>Updated</th><th></th></tr></thead>
@@ -62,6 +61,7 @@ export function renderSopList({ state, esc, fmtDate }) {
 }
 
 export function renderSopCreate({ state, esc }) {
+  const selectedTemplate = state.templates.find((template) => template.id === state.selectedTemplateId) || null;
   const areaOptions = (state.pharmaAreas.length ? state.pharmaAreas : [
     'Quality Assurance',
     'Quality Control',
@@ -83,6 +83,16 @@ export function renderSopCreate({ state, esc }) {
   ].join('');
 
   const targetRoleOptions = ['author', 'reviewer', 'approver', 'trainer'];
+  const templatePreview = selectedTemplate?.sections?.length
+    ? `
+      <div class="section-card">
+        <strong>Template Sections Preview</strong>
+        <ul>
+          ${selectedTemplate.sections.map((section) => `<li><strong>${esc(section.title || section.id)}</strong>: ${esc(section.guidance || '')}</li>`).join('')}
+        </ul>
+      </div>
+    `
+    : '';
 
   return `
     <section class="card">
@@ -97,21 +107,30 @@ export function renderSopCreate({ state, esc }) {
         <label>Template
           <select name="templateId" data-action="set-template">${templateOptions}</select>
         </label>
-        <div class="grid-2">
-          <label>Current Goal
-            <input name="goal" placeholder="What outcome do you want this SOP to drive?" />
-          </label>
-          <label>Authoring Instructions (optional)
-            <input name="authoringInstructions" placeholder="Constraints or style instructions for this SOP draft" />
-          </label>
-        </div>
-        <label>Template Guidance Notes (optional)
-          <textarea name="templateGuidanceNote" placeholder="Extra constraints for selected template"></textarea>
-        </label>
+        ${templatePreview}
+        <details ${state.sopCreateShowAiOptions ? 'open' : ''}>
+          <summary>AI Authoring Options</summary>
+          <div class="grid-2">
+            <label>Current Goal
+              <input name="goal" placeholder="Outcome target for AI-assisted draft generation" />
+              <div class="field-help">Used by server-side AI generation to focus procedure intent.</div>
+            </label>
+            <label>Authoring Instructions
+              <input name="authoringInstructions" placeholder="Constraints or style instructions for this SOP draft" />
+              <div class="field-help">Applied as hard/soft constraints when template content is generated.</div>
+            </label>
+          </div>
+          ${selectedTemplate ? `
+            <label>Template Guidance Notes
+              <textarea name="templateGuidanceNote" placeholder="Extra constraints for selected template"></textarea>
+              <div class="field-help">Only used when a template is selected.</div>
+            </label>
+          ` : ''}
+        </details>
         <div>
           <div class="muted">Target Roles Affected</div>
           <div class="grid-3">
-            ${targetRoleOptions.map((role) => `<label><input type="checkbox" name="targetRoles" value="${role}" ${['author', 'reviewer'].includes(role) ? 'checked' : ''} /> ${role}</label>`).join('')}
+            ${targetRoleOptions.map((role) => `<label class="check-inline"><input type="checkbox" name="targetRoles" value="${role}" ${['author', 'reviewer'].includes(role) ? 'checked' : ''} /> ${role}</label>`).join('')}
           </div>
         </div>
         <div class="muted">SOP code is generated automatically from Settings pattern.</div>

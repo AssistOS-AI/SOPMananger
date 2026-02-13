@@ -13,6 +13,7 @@ export async function handleSubmit(event, ctx) {
     checkedValues,
     loadSops,
     loadChatHistory,
+    loadTasks,
     navigate,
     setMessage,
     loadUsers,
@@ -30,6 +31,26 @@ export async function handleSubmit(event, ctx) {
   event.preventDefault();
   const action = form.dataset.action;
 
+  if (['send-chat-message', 'run-assurance-task', 'run-generation-task'].includes(action)) {
+    try {
+      if (action === 'send-chat-message') {
+        await handleSendChatMessage(form, ctx);
+        return;
+      }
+      if (action === 'run-assurance-task') {
+        await handleRunAssuranceTask(form, ctx);
+        return;
+      }
+      if (action === 'run-generation-task') {
+        await handleRunGenerationTask(form, ctx);
+        return;
+      }
+    } catch (error) {
+      setMessage(error.message, 'error');
+      return;
+    }
+  }
+
   await withBusy(async () => {
     try {
       if (action === 'apply-sop-list-filter') {
@@ -38,7 +59,7 @@ export async function handleSubmit(event, ctx) {
 
       if (action === 'login') {
         const username = form.querySelector('[name="username"]').value.trim();
-        const password = form.querySelector('[name="password"]').value;
+        const password = form.querySelector('[name="password"]')?.value ?? '';
         const result = await api('/api/auth/login', {
           method: 'POST',
           body: { username, password },
@@ -48,6 +69,7 @@ export async function handleSubmit(event, ctx) {
         await Promise.all([
           loadSops(),
           loadChatHistory(),
+          loadTasks(),
         ]);
         navigate('/dashboard');
         return;
@@ -150,6 +172,7 @@ export async function handleSubmit(event, ctx) {
         });
         await loadSops();
         await loadSopContext(state.currentSopId);
+        state.editorDirty = false;
         setMessage('Version saved.');
         return;
       }
@@ -277,21 +300,6 @@ export async function handleSubmit(event, ctx) {
         state.assuranceCheckCatalog = updated.assuranceCheckCatalog || state.assuranceCheckCatalog;
         state.pharmaAreas = Array.isArray(updated.pharmaAreas) ? updated.pharmaAreas : state.pharmaAreas;
         setMessage('SOP code policy updated.');
-        return;
-      }
-
-      if (action === 'send-chat-message') {
-        await handleSendChatMessage(form, ctx);
-        return;
-      }
-
-      if (action === 'run-assurance-task') {
-        await handleRunAssuranceTask(form, ctx);
-        return;
-      }
-
-      if (action === 'run-generation-task') {
-        await handleRunGenerationTask(form, ctx);
         return;
       }
 
