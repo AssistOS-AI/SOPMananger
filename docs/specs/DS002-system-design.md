@@ -53,6 +53,9 @@ data/workspaces/default/
   - training policy (due days, pass score, sign-off requirement)
 - `TrainingTask`
   - assignment, due date, read acknowledgement, quiz attempts/scores, trainer sign-off, computed status
+- `SOPDocument`
+  - structured sections/process/references
+  - optional `authorContext` (`goal`, `instructions`, `templateGuidanceNote`) captured at creation time
 - `AutomationJob`
   - type, interval, enabled, next run, last run, input payload
 - `ServerTask`

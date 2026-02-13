@@ -119,12 +119,25 @@ export class SopService {
   async createSop({ actor, payload = {} }) {
     const sopId = payload.id || `sop-${randomUUID().slice(0, 8)}`;
     const interviewSummary = payload.interviewSummary ?? null;
-    const document = payload.document ?? createBaseDocument({
+    let document = payload.document ?? createBaseDocument({
       title: payload.title,
       interviewSummary,
       processModel: payload.processModel,
       references: payload.references,
     });
+    const goal = String(payload.goal || '').trim();
+    const instructions = String(payload.authoringInstructions || '').trim();
+    const templateGuidanceNote = String(payload.templateGuidanceNote || '').trim();
+    if (goal || instructions || templateGuidanceNote) {
+      document = {
+        ...document,
+        authorContext: {
+          goal,
+          instructions,
+          templateGuidanceNote,
+        },
+      };
+    }
 
     const generatedCode = payload.code
       ? null

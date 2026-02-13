@@ -516,6 +516,8 @@ export async function createApp(options = {}) {
             template,
             title: payload.title || template.title,
             guidanceNote: payload.templateGuidanceNote || '',
+            goal: payload.goal || '',
+            instructions: payload.authoringInstructions || '',
           }),
         };
       }

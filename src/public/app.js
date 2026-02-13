@@ -178,14 +178,17 @@ async function createChatAttachment(file) {
   return attachment;
 }
 
-function requestChatAutoScroll() {
+function requestChatAutoScroll({ force = false } = {}) {
   if (state.route.view !== 'assistant') {
     return;
   }
   requestAnimationFrame(() => {
     const wrap = app.querySelector('.chat-thread-wrap');
     if (wrap) {
-      wrap.scrollTop = wrap.scrollHeight;
+      const distanceToBottom = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+      if (force || distanceToBottom < 120) {
+        wrap.scrollTop = wrap.scrollHeight;
+      }
     }
   });
 }
@@ -384,11 +387,24 @@ function navigate(path) {
   window.location.hash = normalized;
 }
 
-function navLink(path, label) {
+function icon(name, extraClass = '') {
+  return `<span class="icon ${extraClass ? `${extraClass} ` : ''}icon-${esc(name)}" aria-hidden="true"></span>`;
+}
+
+function navLink(path, label, iconName = 'dot') {
   const targetHash = `#${path}`;
-  const active = window.location.hash === targetHash
-    || (path !== '/dashboard' && window.location.hash.startsWith(`${targetHash}?`));
-  return `<a class="nav-btn ${active ? 'active' : ''}" href="${targetHash}">${esc(label)}</a>`;
+  const currentHash = window.location.hash || '#/dashboard';
+  const active = path === '/dashboard'
+    ? currentHash === '#/dashboard' || currentHash === '#'
+    : currentHash === targetHash
+      || currentHash.startsWith(`${targetHash}?`)
+      || currentHash.startsWith(`${targetHash}/`);
+  return `
+    <a class="nav-btn ${active ? 'active' : ''}" href="${targetHash}">
+      ${icon(iconName)}
+      <span>${esc(label)}</span>
+    </a>
+  `;
 }
 
 async function loadSession() {
@@ -544,7 +560,9 @@ async function loadTask(taskId) {
 async function pollTask(taskId, { attempts = 80, intervalMs = 1200 } = {}) {
   for (let index = 0; index < attempts; index += 1) {
     const task = await loadTask(taskId);
-    await loadTasks();
+    if (index % 4 === 0) {
+      await loadTasks();
+    }
     if (task && ['completed', 'failed'].includes(task.status)) {
       return task;
     }
@@ -560,7 +578,7 @@ function checkedValues(form, name) {
 function collectEditorDocument() {
   const root = document.querySelector('[data-editor-form]');
   if (!root || !state.currentSop) {
-    return;
+    throw new Error('Editor context is not available. Reload the SOP editor and try again.');
   }
   const title = root.querySelector('[name="document-title"]')?.value?.trim() || state.currentSop.meta.title;
 
@@ -661,19 +679,20 @@ function renderLogin() {
 }
 
 function renderShell(contentHtml) {
-  const nav = [
-    navLink('/dashboard', 'Dashboard'),
-    navLink('/sops', 'SOP List'),
-    navLink('/sops/create', 'Create SOP'),
-    navLink('/users', 'User Management'),
-    navLink('/training', 'Training Compliance'),
-    navLink('/automation', 'Automation & Scans'),
-    navLink('/tasks', 'Task Monitor'),
-    navLink('/assistant', 'Agent Chat'),
-    navLink('/templates', 'Templates'),
-    navLink('/audit', 'Audit'),
-    navLink('/settings', 'Settings'),
-  ].join('');
+  const navItems = [
+    navLink('/dashboard', 'Dashboard', 'dashboard'),
+    navLink('/sops', 'SOP List', 'sops'),
+    navLink('/sops/create', 'Create SOP', 'create'),
+    state.session.role === 'admin' ? navLink('/users', 'User Management', 'users') : '',
+    navLink('/training', 'Training Compliance', 'training'),
+    navLink('/automation', 'Automation & Scans', 'automation'),
+    navLink('/tasks', 'Task Monitor', 'tasks'),
+    navLink('/assistant', 'Agent Chat', 'chat'),
+    navLink('/templates', 'Templates', 'templates'),
+    navLink('/audit', 'Audit', 'audit'),
+    navLink('/settings', 'Settings', 'settings'),
+  ];
+  const nav = navItems.filter(Boolean).join('');
 
   return `
     <div class="app-shell">
@@ -693,13 +712,14 @@ function renderShell(contentHtml) {
           <div class="top-left">
             <span class="pill">${esc(state.session.role)}</span>
             <span class="status-line">Signed in as <strong>${esc(state.session.displayName || state.session.username)}</strong></span>
+            ${state.busy ? '<span class="busy-chip">Working...</span>' : ''}
           </div>
           <div class="actions">
-            <button class="btn" data-action="clear-message">Clear Message</button>
-            <button class="btn danger" data-action="logout">Logout</button>
+            <button class="btn" data-action="clear-message">${icon('clear', 'btn-icon')}<span>Clear Message</span></button>
+            <button class="btn danger" data-action="logout">${icon('logout', 'btn-icon')}<span>Logout</span></button>
           </div>
         </header>
-        <section class="content">
+        <section class="content ${state.route.view === 'assistant' ? 'assistant-content' : ''}">
           ${renderMessage()}
           ${contentHtml}
         </section>
@@ -767,9 +787,9 @@ function renderDashboard() {
         <div class="muted">Each status card opens the matching filtered SOP list.</div>
         <div class="stat-grid">${cards}</div>
         <div class="actions">
-          <a class="btn primary" href="#/sops/create">Create New SOP</a>
-          <a class="btn" href="#/sops">Open SOP List</a>
-          <a class="btn" href="#/tasks">Open Task Monitor</a>
+          <a class="btn primary" href="#/sops/create">${icon('create', 'btn-icon')}<span>Create New SOP</span></a>
+          <a class="btn" href="#/sops">${icon('sops', 'btn-icon')}<span>Open SOP List</span></a>
+          <a class="btn" href="#/tasks">${icon('tasks', 'btn-icon')}<span>Open Task Monitor</span></a>
         </div>
       </div>
     </section>
@@ -790,8 +810,8 @@ function renderDashboard() {
         </article>
       </div>
       <div class="card-body actions">
-        <a class="btn" href="#/training">Open Training Compliance</a>
-        <a class="btn" href="#/automation">Open Automation & Scans</a>
+        <a class="btn" href="#/training">${icon('training', 'btn-icon')}<span>Open Training Compliance</span></a>
+        <a class="btn" href="#/automation">${icon('automation', 'btn-icon')}<span>Open Automation & Scans</span></a>
       </div>
     </section>
     <section class="card">
@@ -1036,6 +1056,14 @@ function renderSopCreate() {
         <label>Template
           <select name="templateId" data-action="set-template">${templateOptions}</select>
         </label>
+        <div class="grid-2">
+          <label>Current Goal
+            <input name="goal" placeholder="What outcome do you want this SOP to drive?" />
+          </label>
+          <label>Authoring Instructions (optional)
+            <input name="authoringInstructions" placeholder="Constraints or style instructions for this SOP draft" />
+          </label>
+        </div>
         <label>Template Guidance Notes (optional)
           <textarea name="templateGuidanceNote" placeholder="Extra constraints for selected template"></textarea>
         </label>
@@ -2047,7 +2075,6 @@ function render() {
     return;
   }
   app.innerHTML = renderShell(renderMainView());
-  requestChatAutoScroll();
 }
 
 async function syncRoute() {
@@ -2164,6 +2191,8 @@ async function handleSubmit(event) {
         const area = form.querySelector('[name="area"]').value.trim();
         const targetRoles = checkedValues(form, 'targetRoles');
         const templateId = form.querySelector('[name="templateId"]').value.trim();
+        const goal = form.querySelector('[name="goal"]').value.trim();
+        const authoringInstructions = form.querySelector('[name="authoringInstructions"]').value.trim();
         const templateGuidanceNote = form.querySelector('[name="templateGuidanceNote"]').value.trim();
         const created = await api('/api/sops', {
           method: 'POST',
@@ -2172,6 +2201,8 @@ async function handleSubmit(event) {
             area,
             targetRoles,
             templateId: templateId || undefined,
+            goal,
+            authoringInstructions,
             templateGuidanceNote,
           },
         });

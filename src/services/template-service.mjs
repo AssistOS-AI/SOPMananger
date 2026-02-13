@@ -177,12 +177,30 @@ export class TemplateService {
     return updated;
   }
 
-  buildDocumentFromTemplate({ template, title, guidanceNote = '' }) {
+  buildDocumentFromTemplate({
+    template,
+    title,
+    guidanceNote = '',
+    goal = '',
+    instructions = '',
+  }) {
     const note = String(guidanceNote || '').trim();
+    const goalText = String(goal || '').trim();
+    const instructionsText = String(instructions || '').trim();
+    const contextLines = [];
+    if (goalText) {
+      contextLines.push(`Current goal: ${goalText}`);
+    }
+    if (instructionsText) {
+      contextLines.push(`Authoring instructions: ${instructionsText}`);
+    }
+    const contextBlock = contextLines.length
+      ? `[AUTHOR CONTEXT]\n${contextLines.join('\n')}`
+      : '';
     const sections = template.sections.map((section) => ({
       id: section.id,
       title: section.title,
-      text: [section.guidance, note].filter(Boolean).join('\n\n') || '[CONFIRM] Complete this section.',
+      text: [section.guidance, contextBlock, note].filter(Boolean).join('\n\n') || '[CONFIRM] Complete this section.',
     }));
     return {
       title: title || template.title,
@@ -190,6 +208,11 @@ export class TemplateService {
       processModel: { steps: [] },
       references: [],
       trainingTaskIds: [],
+      authorContext: {
+        goal: goalText,
+        instructions: instructionsText,
+        templateGuidanceNote: note,
+      },
       template: {
         id: template.id,
         title: template.title,

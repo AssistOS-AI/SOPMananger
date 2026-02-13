@@ -59,6 +59,7 @@ async function main() {
     authService,
     trainingService,
     automationService,
+    templateService,
   } = app.services;
 
   const tryCredentials = async (username, candidates) => {
@@ -312,9 +313,8 @@ async function main() {
     },
   ];
 
-  const blockResults = [];
   for (const definition of blocks) {
-    blockResults.push(await ensureBlock(definition));
+    await ensureBlock(definition);
   }
 
   const sopDefinitions = [
@@ -474,9 +474,9 @@ async function main() {
   const summary = {
     workspacePath,
     resetApplied: reset,
-    blocks: {
-      total: (await sopService.listBlocks()).length,
-      created: blockResults.filter((item) => item.created).length,
+    templates: {
+      total: (await templateService.listTemplates()).length,
+      customCreated: 0,
     },
     sops: {
       total: finalSops.length,
@@ -500,7 +500,7 @@ async function main() {
     },
     impact: {
       primaryReverseReferences: impact.reverseReferences.length,
-      primaryLinkedBlocks: impact.linkedBlocks.length,
+      primaryReusableLinks: impact.linkedBlocks.length,
     },
     audit: auditVerification,
   };

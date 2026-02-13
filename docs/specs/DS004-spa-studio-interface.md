@@ -19,6 +19,7 @@ The interface is server-hosted, dependency-free, and API-driven.
 - `Create SOP`
   - dedicated page with title + pharma area select + target role checkboxes
   - optional template selection (predefined structure/guidance)
+  - author context fields (`Current Goal`, `Authoring Instructions`, `Template Guidance Notes`)
   - SOP code generated automatically from settings policy
 - `SOP Edit`
   - dedicated page with tabs: Content, Quality, Review, Release, Links/Final View
