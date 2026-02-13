@@ -17,12 +17,43 @@ function extractMatches(content, regex) {
   return values;
 }
 
-test('All rendered data-action values have click/submit handlers', async () => {
-  const filePath = path.join(__dirname, '..', 'src', 'public', 'app.js');
-  const content = await fs.readFile(filePath, 'utf8');
+async function listScriptFiles(rootDir) {
+  const files = [];
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // eslint-disable-next-line no-await-in-loop
+        await walk(target);
+        continue;
+      }
+      if (entry.isFile() && (target.endsWith('.js') || target.endsWith('.mjs'))) {
+        files.push(target);
+      }
+    }
+  }
+  await walk(rootDir);
+  return files;
+}
 
-  const declaredActions = extractMatches(content, /data-action="([a-z0-9-]+)"/g);
-  const handledActions = extractMatches(content, /action === '([a-z0-9-]+)'/g);
+test('All rendered data-action values have click/submit handlers', async () => {
+  const publicRoot = path.join(__dirname, '..', 'src', 'public');
+  const allFiles = await listScriptFiles(publicRoot);
+
+  const declaredActions = new Set();
+  const handledActions = new Set();
+
+  for (const filePath of allFiles) {
+    // eslint-disable-next-line no-await-in-loop
+    const content = await fs.readFile(filePath, 'utf8');
+    for (const value of extractMatches(content, /data-action="([a-z0-9-]+)"/g)) {
+      declaredActions.add(value);
+    }
+    for (const value of extractMatches(content, /action === '([a-z0-9-]+)'/g)) {
+      handledActions.add(value);
+    }
+  }
 
   const missing = [...declaredActions].filter((action) => !handledActions.has(action));
   assert.deepEqual(missing, []);

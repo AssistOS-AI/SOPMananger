@@ -1,84 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { escapeHtml, HttpError } from '../lib/http.mjs';
-
-function createBaseDocument({ title, interviewSummary = null, processModel = null, references = [] } = {}) {
-  const summary = interviewSummary ?? {};
-  return {
-    title: title || summary.title || 'Untitled SOP',
-    sections: [
-      { id: 'purpose', title: 'Purpose', text: summary.purpose || '[CONFIRM] Add SOP purpose.' },
-      { id: 'scope', title: 'Scope', text: summary.scope || '[CONFIRM] Add SOP scope.' },
-      {
-        id: 'responsibilities',
-        title: 'Responsibilities',
-        text: Array.isArray(summary.roles) && summary.roles.length
-          ? summary.roles.join(', ')
-          : '[CONFIRM] Add roles and responsibilities.',
-      },
-      {
-        id: 'procedure',
-        title: 'Procedure',
-        text: summary.procedureDraft || '[CONFIRM] Add procedural steps.',
-      },
-      {
-        id: 'records',
-        title: 'Records',
-        text: '[CONFIRM] Add required records and retention details.',
-      },
-      {
-        id: 'exceptions',
-        title: 'Exceptions',
-        text: '[CONFIRM] Add exceptions and escalation rules.',
-      },
-    ],
-    processModel: processModel ?? { steps: [] },
-    references: Array.isArray(references) ? references : [],
-    trainingTaskIds: [],
-  };
-}
-
-function buildChangeSummary(previousDocument, nextDocument) {
-  const previousSections = Array.isArray(previousDocument?.sections) ? previousDocument.sections : [];
-  const nextSections = Array.isArray(nextDocument?.sections) ? nextDocument.sections : [];
-
-  const changed = [];
-  const nextById = new Map(nextSections.map((section) => [section.id || section.title, section]));
-
-  for (const section of previousSections) {
-    const key = section.id || section.title;
-    const counterpart = nextById.get(key);
-    if (!counterpart) {
-      changed.push(`Removed section: ${key}`);
-      continue;
-    }
-    if (String(counterpart.text || '') !== String(section.text || '')) {
-      changed.push(`Updated section: ${key}`);
-    }
-  }
-
-  for (const section of nextSections) {
-    const key = section.id || section.title;
-    const existsBefore = previousSections.some((item) => (item.id || item.title) === key);
-    if (!existsBefore) {
-      changed.push(`Added section: ${key}`);
-    }
-  }
-
-  return changed.length ? changed : ['No section-level changes detected.'];
-}
-
-function renderTemplate(template, params = {}) {
-  let output = String(template || '');
-  for (const [key, value] of Object.entries(params)) {
-    const token = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
-    output = output.replace(token, String(value));
-  }
-  return output;
-}
-
-function normalizeSectionPath(pathValue) {
-  return String(pathValue || '').trim();
-}
+import { HttpError } from '../lib/http.mjs';
+import {
+  buildChangeSummary,
+  createBaseDocument,
+  normalizeSectionPath,
+  renderSopExportHtml,
+} from './sop-document-utils.mjs';
+import {
+  analyzeSopImpact,
+  createSopBlock,
+  instantiateSopBlock,
+} from './sop-block-impact-ops.mjs';
 
 export class SopService {
   constructor({
@@ -409,88 +341,18 @@ export class SopService {
   }
 
   async createBlock({ actor, payload = {} }) {
-    if (!payload.title || !String(payload.title).trim()) {
-      throw new HttpError(400, 'Block title is required.');
-    }
-    if (!payload.contentTemplate || !String(payload.contentTemplate).trim()) {
-      throw new HttpError(400, 'Block contentTemplate is required.');
-    }
-
-    const block = await this.documentStore.createBlock({
-      blockId: payload.id,
-      title: payload.title,
-      contentTemplate: payload.contentTemplate,
-      parameterSchema: payload.parameterSchema,
-      mode: payload.mode,
-      actorId: actor.id,
-    });
-
-    await this.auditStore.append({
-      actorId: actor.id,
-      action: 'block.create',
-      entityType: 'block',
-      entityId: block.id,
-      payload: {
-        title: block.title,
-        mode: block.mode,
-      },
-    });
-
-    return block;
+    return createSopBlock(this, { actor, payload });
   }
 
   async instantiateBlock({ sopId, actor, blockId, mode = null, parameters = {}, sectionId = null }) {
-    const sop = await this.getSop(sopId);
-    const block = await this.documentStore.getBlock(blockId);
-    if (!block) {
-      throw new HttpError(404, `Block "${blockId}" not found.`);
-    }
-
-    const document = structuredClone(sop.latestVersion?.document || createBaseDocument({}));
-    const rendered = renderTemplate(block.contentTemplate, parameters || {});
-    const finalMode = mode || block.mode || 'linked';
-    const generatedSectionId = sectionId || `block-${blockId}-${Date.now()}`;
-
-    const section = {
-      id: generatedSectionId,
-      title: block.title,
-      text: rendered,
-      source: {
-        type: 'block',
-        blockId: block.id,
-        mode: finalMode === 'detached' ? 'detached' : 'linked',
-        parameters: parameters || {},
-      },
-    };
-
-    if (!Array.isArray(document.sections)) {
-      document.sections = [];
-    }
-    document.sections.push(section);
-
-    const version = await this.createVersion({
+    return instantiateSopBlock(this, {
       sopId,
       actor,
-      document,
-      changeSummary: `Instantiated block ${block.id} as ${section.id}.`,
+      blockId,
+      mode,
+      parameters,
+      sectionId,
     });
-
-    await this.auditStore.append({
-      actorId: actor.id,
-      action: 'block.instantiate',
-      entityType: 'sop',
-      entityId: sopId,
-      payload: {
-        blockId: block.id,
-        mode: section.source.mode,
-        sectionId: section.id,
-      },
-    });
-
-    return {
-      section,
-      version,
-    };
   }
 
   async listReviewComments(sopId) {
@@ -551,100 +413,17 @@ export class SopService {
   }
 
   async analyzeImpact(sopId) {
-    const target = await this.getSop(sopId);
-    const doc = target.latestVersion?.document || {};
-    const references = Array.isArray(doc.references) ? doc.references : [];
-    const sections = Array.isArray(doc.sections) ? doc.sections : [];
-    const linkedBlocks = sections
-      .filter((section) => section?.source?.type === 'block' && section?.source?.mode === 'linked')
-      .map((section) => ({
-        sectionId: section.id,
-        blockId: section.source.blockId,
-      }));
-
-    const allSops = await this.listSops();
-    const reverseReferences = [];
-
-    for (const item of allSops) {
-      if (item.id === sopId) {
-        continue;
-      }
-      const candidate = await this.getSop(item.id);
-      const candidateReferences = Array.isArray(candidate.latestVersion?.document?.references)
-        ? candidate.latestVersion.document.references
-        : [];
-      const matched = candidateReferences.some((ref) => ref?.target === sopId || ref?.target === target.meta.code);
-      if (matched) {
-        reverseReferences.push({
-          sopId: candidate.meta.id,
-          title: candidate.meta.title,
-          status: candidate.meta.status,
-        });
-      }
-    }
-
-    return {
-      sopId,
-      references: references.map((reference) => ({
-        label: reference.label || '',
-        target: reference.target || '',
-        type: reference.type || '',
-      })),
-      linkedBlocks,
-      reverseReferences,
-    };
+    return analyzeSopImpact(this, sopId);
   }
 
   async exportSopHtml(sopId) {
     const sop = await this.getSop(sopId);
-    const document = sop.latestVersion?.document ?? {};
-    const sections = Array.isArray(document.sections) ? document.sections : [];
     const versions = await this.documentStore.listVersions(sopId);
-    const recentChanges = versions.slice(-5).reverse();
-
-    const rows = sections
-      .map(
-        (section) => `
-          <section class="section">
-            <h2>${escapeHtml(section.title || section.id || 'Section')}</h2>
-            <p>${escapeHtml(section.text || '')}</p>
-          </section>`,
-      )
-      .join('\n');
-
-    const changeRows = recentChanges
-      .map((version) => `<li>${escapeHtml(version.versionId)} - ${escapeHtml(version.changeSummary || '')}</li>`)
-      .join('\n');
-
-    return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(sop.meta.title)} - Export</title>
-  <style>
-    body { font-family: "Times New Roman", serif; margin: 32px; color: #111; }
-    h1, h2 { margin: 0 0 8px; }
-    .meta { margin: 0 0 18px; font-size: 14px; color: #444; }
-    .section { margin: 0 0 18px; page-break-inside: avoid; }
-    .changes { margin-top: 24px; }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(sop.meta.title)}</h1>
-  <div class="meta">
-    <div>Code: ${escapeHtml(sop.meta.code || '-')}</div>
-    <div>Status: ${escapeHtml(sop.meta.status || '-')}</div>
-    <div>Version: ${escapeHtml(sop.meta.currentVersionId || '-')}</div>
-    <div>Exported At: ${escapeHtml(new Date().toISOString())}</div>
-  </div>
-  ${rows}
-  <section class="changes">
-    <h2>Recent Change Summary</h2>
-    <ul>${changeRows}</ul>
-  </section>
-</body>
-</html>`;
+    return renderSopExportHtml({
+      sopMeta: sop.meta,
+      document: sop.latestVersion?.document ?? {},
+      versions,
+    });
   }
 
   async summarizeInterview(interviewPayload) {

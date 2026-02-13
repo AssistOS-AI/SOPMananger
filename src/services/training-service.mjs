@@ -266,7 +266,7 @@ export class TrainingService {
           ...quiz,
           attempts: nextAttempts,
           latestScore: normalizedScore,
-          passedAt: passed ? nowIso() : null,
+          passedAt: passed ? (quiz.passedAt || nowIso()) : (quiz.passedAt || null),
           history,
         },
       };

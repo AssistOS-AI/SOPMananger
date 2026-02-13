@@ -304,8 +304,17 @@ export class AutomationService {
             jobId: job.id,
             trigger: 'scheduler',
           });
-        } catch {
-          // ignore scheduler errors; task/audit handles traceability for successful runs
+        } catch (error) {
+          await this.auditStore.append({
+            actorId: 'system',
+            action: 'automation.job.run-failed',
+            entityType: 'automation-job',
+            entityId: job.id,
+            payload: {
+              trigger: 'scheduler',
+              error: error?.message || 'Unknown scheduler error',
+            },
+          });
         }
       }
     } finally {

@@ -38,6 +38,7 @@ export class AuditStore {
     this.logPath = path.join(this.auditDir, 'audit.log.jsonl');
     this.statePath = path.join(this.auditDir, 'state.json');
     this.genesisHash = 'GENESIS';
+    this.appendQueue = Promise.resolve();
   }
 
   async initialize() {
@@ -67,34 +68,39 @@ export class AuditStore {
   }
 
   async append({ actorId, action, entityType, entityId, payload = {} }) {
-    const now = new Date().toISOString();
-    const state = await this._readState();
-    const prevHash = state.lastHash || this.genesisHash;
-    const payloadHash = sha256(stableStringify(payload));
+    const appendJob = this.appendQueue.then(async () => {
+      const now = new Date().toISOString();
+      const state = await this._readState();
+      const prevHash = state.lastHash || this.genesisHash;
+      const payloadHash = sha256(stableStringify(payload));
 
-    const baseRecord = {
-      eventId: randomUUID(),
-      timestamp: now,
-      actorId,
-      action,
-      entityType,
-      entityId,
-      payloadHash,
-      payload,
-      prevHash,
-    };
+      const baseRecord = {
+        eventId: randomUUID(),
+        timestamp: now,
+        actorId,
+        action,
+        entityType,
+        entityId,
+        payloadHash,
+        payload,
+        prevHash,
+      };
 
-    const hash = this._computeHash(baseRecord);
-    const record = { ...baseRecord, hash };
+      const hash = this._computeHash(baseRecord);
+      const record = { ...baseRecord, hash };
 
-    await appendJsonLine(this.logPath, record);
-    await writeJsonAtomic(this.statePath, {
-      lastHash: hash,
-      count: Number(state.count || 0) + 1,
-      updatedAt: now,
+      await appendJsonLine(this.logPath, record);
+      await writeJsonAtomic(this.statePath, {
+        lastHash: hash,
+        count: Number(state.count || 0) + 1,
+        updatedAt: now,
+      });
+
+      return record;
     });
 
-    return record;
+    this.appendQueue = appendJob.catch(() => {});
+    return appendJob;
   }
 
   async readAll() {

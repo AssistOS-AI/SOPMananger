@@ -46,7 +46,7 @@ export class TaskService {
     }
 
     const task = {
-      id: `task-${randomUUID().slice(0, 10)}`,
+      id: `task-${randomUUID()}`,
       type,
       title: title || type,
       actorId,

@@ -9,6 +9,20 @@ export class HttpError extends Error {
   }
 }
 
+export const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'same-origin',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+};
+
+function withSecurityHeaders(headers = {}) {
+  return {
+    ...SECURITY_HEADERS,
+    ...headers,
+  };
+}
+
 export async function readBody(req, maxBytes = 1_000_000) {
   const chunks = [];
   let size = 0;
@@ -40,6 +54,7 @@ export async function readJsonBody(req, maxBytes = 1_000_000) {
 export function sendJson(res, status, payload, extraHeaders = {}) {
   const data = JSON.stringify(payload);
   res.writeHead(status, {
+    ...withSecurityHeaders(),
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(data),
     ...extraHeaders,
@@ -49,6 +64,7 @@ export function sendJson(res, status, payload, extraHeaders = {}) {
 
 export function sendHtml(res, status, html, extraHeaders = {}) {
   res.writeHead(status, {
+    ...withSecurityHeaders(),
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(html),
     ...extraHeaders,
@@ -57,7 +73,7 @@ export function sendHtml(res, status, html, extraHeaders = {}) {
 }
 
 export function sendNoContent(res, extraHeaders = {}) {
-  res.writeHead(204, extraHeaders);
+  res.writeHead(204, withSecurityHeaders(extraHeaders));
   res.end();
 }
 

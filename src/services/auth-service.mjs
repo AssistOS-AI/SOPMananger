@@ -7,46 +7,16 @@ import {
 import { promisify } from 'node:util';
 import { buildCookie, HttpError, parseCookies } from '../lib/http.mjs';
 import { fileExists, readJson, writeJsonAtomic } from '../storage/json-store.mjs';
+import {
+  defaultUserProfiles,
+  normalizeEssentialRoles,
+  PRIMARY_ROLES,
+  sanitizeUser,
+} from './auth-models.mjs';
 
 const scrypt = promisify(scryptCallback);
 
 export const SESSION_COOKIE = 'sop_sid';
-export const PRIMARY_ROLES = ['admin', 'author', 'reviewer', 'approver'];
-export const ESSENTIAL_ROLE_SET = ['author', 'reviewer', 'approver', 'trainer'];
-
-function normalizeEssentialRoles(value, fallbackRole = null) {
-  const incoming = Array.isArray(value) ? value : [];
-  const cleaned = incoming
-    .map((item) => String(item || '').trim())
-    .filter((item) => ESSENTIAL_ROLE_SET.includes(item));
-  if (fallbackRole && ESSENTIAL_ROLE_SET.includes(fallbackRole) && !cleaned.includes(fallbackRole)) {
-    cleaned.unshift(fallbackRole);
-  }
-  const unique = [...new Set(cleaned)];
-  return unique;
-}
-
-function sanitizeUser(user, options = {}) {
-  const { passwordEnabled = undefined } = options;
-  if (!user) {
-    return null;
-  }
-  const payload = {
-    id: user.id,
-    username: user.username,
-    displayName: user.displayName || user.username,
-    department: user.department || '',
-    site: user.site || '',
-    jobTitle: user.jobTitle || '',
-    role: user.role,
-    essentialRoles: normalizeEssentialRoles(user.essentialRoles, user.role),
-    active: user.active !== false,
-  };
-  if (typeof passwordEnabled === 'boolean') {
-    payload.passwordEnabled = passwordEnabled;
-  }
-  return payload;
-}
 
 export class AuthService {
   constructor({
@@ -156,53 +126,7 @@ export class AuthService {
       return;
     }
 
-    const defaults = [
-      {
-        id: 'u-admin',
-        username: 'admin',
-        displayName: 'Quality Systems Admin',
-        department: 'Quality Systems',
-        site: 'HQ',
-        jobTitle: 'System Administrator',
-        role: 'admin',
-        essentialRoles: ['author', 'reviewer', 'approver', 'trainer'],
-        password: '',
-      },
-      {
-        id: 'u-author',
-        username: 'author',
-        displayName: 'Process Author',
-        department: 'Operations',
-        site: 'Plant A',
-        jobTitle: 'Process Owner',
-        role: 'author',
-        essentialRoles: ['author'],
-        password: '',
-      },
-      {
-        id: 'u-reviewer',
-        username: 'reviewer',
-        displayName: 'SME Reviewer',
-        department: 'Quality Assurance',
-        site: 'Plant A',
-        jobTitle: 'QA Specialist',
-        role: 'reviewer',
-        essentialRoles: ['reviewer', 'trainer'],
-        password: '',
-      },
-      {
-        id: 'u-approver',
-        username: 'approver',
-        displayName: 'Final Approver',
-        department: 'Quality Unit',
-        site: 'Plant A',
-        jobTitle: 'Qualified Person',
-        role: 'approver',
-        essentialRoles: ['approver'],
-        password: '',
-      },
-    ];
-
+    const defaults = defaultUserProfiles();
     const users = [];
     for (const item of defaults) {
       const passwordHash = await this.hashPassword(item.password);
@@ -384,7 +308,14 @@ export class AuthService {
     if (!Array.isArray(allowedRoles) || !allowedRoles.length) {
       return;
     }
-    if (!allowedRoles.includes(session.user.role) && session.user.role !== 'admin') {
+    const primaryRole = String(session.user.role || '');
+    const essentialRoles = Array.isArray(session.user.essentialRoles)
+      ? session.user.essentialRoles.map((role) => String(role || '').trim()).filter(Boolean)
+      : [];
+    const hasRole = primaryRole === 'admin'
+      || allowedRoles.includes(primaryRole)
+      || essentialRoles.some((role) => allowedRoles.includes(role));
+    if (!hasRole) {
       throw new HttpError(403, 'Insufficient role for this operation.');
     }
   }
