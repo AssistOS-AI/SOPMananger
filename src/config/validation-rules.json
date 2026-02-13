@@ -1,0 +1,17 @@
+{
+  "requiredSections": [
+    { "id": "purpose", "title": "Purpose" },
+    { "id": "scope", "title": "Scope" },
+    { "id": "responsibilities", "title": "Responsibilities" },
+    { "id": "procedure", "title": "Procedure" },
+    { "id": "records", "title": "Records" },
+    { "id": "exceptions", "title": "Exceptions" }
+  ],
+  "ambiguousTerms": [
+    "as needed",
+    "periodic",
+    "etc",
+    "as soon as possible",
+    "if required"
+  ]
+}

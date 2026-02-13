@@ -1,0 +1,13 @@
+{
+  "name": "sopmanager",
+  "version": "0.1.0",
+  "description": "SOP Manager Studio backend and web UI",
+  "type": "module",
+  "scripts": {
+    "server": "node src/server.mjs",
+    "test": "node --test",
+    "seed": "node scripts/seed-workspace.mjs",
+    "verify": "node scripts/verify-workspace.mjs"
+  },
+  "license": "MIT"
+}
