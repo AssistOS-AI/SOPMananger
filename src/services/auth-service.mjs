@@ -1,4 +1,9 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
+import {
+  createHmac,
+  randomBytes,
+  scrypt as scryptCallback,
+  timingSafeEqual,
+} from 'node:crypto';
 import { promisify } from 'node:util';
 import { buildCookie, HttpError, parseCookies } from '../lib/http.mjs';
 import { fileExists, readJson, writeJsonAtomic } from '../storage/json-store.mjs';
@@ -44,11 +49,85 @@ function sanitizeUser(user, options = {}) {
 }
 
 export class AuthService {
-  constructor({ usersFilePath, secureCookies = false, sessionTtlSeconds = 8 * 3600 }) {
+  constructor({
+    usersFilePath,
+    secureCookies = false,
+    sessionTtlSeconds = 8 * 3600,
+    sessionSecret = null,
+    loginWindowMs = 10 * 60 * 1000,
+    loginBlockMs = 5 * 60 * 1000,
+    loginMaxAttempts = 12,
+  }) {
     this.usersFilePath = usersFilePath;
     this.secureCookies = secureCookies;
     this.sessionTtlSeconds = sessionTtlSeconds;
+    this.sessionSecret = String(sessionSecret || randomBytes(32).toString('hex'));
+    this.loginWindowMs = Number(loginWindowMs) > 1000 ? Number(loginWindowMs) : 10 * 60 * 1000;
+    this.loginBlockMs = Number(loginBlockMs) > 1000 ? Number(loginBlockMs) : 5 * 60 * 1000;
+    this.loginMaxAttempts = Number(loginMaxAttempts) > 2 ? Math.round(Number(loginMaxAttempts)) : 12;
+    this.loginAttempts = new Map();
     this.sessions = new Map();
+  }
+
+  _attemptKey(username = '', ipAddress = '') {
+    return `${String(ipAddress || 'unknown').trim()}::${String(username || '').trim().toLowerCase()}`;
+  }
+
+  _cleanupLoginAttempts(now = Date.now()) {
+    for (const [key, record] of this.loginAttempts.entries()) {
+      const blocked = Number(record.blockedUntil || 0);
+      const started = Number(record.windowStartedAt || 0);
+      if (blocked > now) {
+        continue;
+      }
+      if (now - started > this.loginWindowMs) {
+        this.loginAttempts.delete(key);
+      }
+    }
+  }
+
+  assertLoginAllowed({ username = '', ipAddress = '' } = {}) {
+    const now = Date.now();
+    this._cleanupLoginAttempts(now);
+    const key = this._attemptKey(username, ipAddress);
+    const record = this.loginAttempts.get(key);
+    const blockedUntil = Number(record?.blockedUntil || 0);
+    if (blockedUntil > now) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((blockedUntil - now) / 1000));
+      throw new HttpError(429, `Too many login attempts. Retry in ${retryAfterSeconds}s.`);
+    }
+  }
+
+  registerLoginResult({ username = '', ipAddress = '', success = false } = {}) {
+    const now = Date.now();
+    this._cleanupLoginAttempts(now);
+    const key = this._attemptKey(username, ipAddress);
+    if (success) {
+      this.loginAttempts.delete(key);
+      return;
+    }
+
+    const current = this.loginAttempts.get(key);
+    const record = (!current || now - Number(current.windowStartedAt || 0) > this.loginWindowMs)
+      ? {
+        count: 0,
+        windowStartedAt: now,
+        blockedUntil: 0,
+      }
+      : { ...current };
+
+    if (Number(record.blockedUntil || 0) > now) {
+      this.loginAttempts.set(key, record);
+      return;
+    }
+
+    record.count = Number(record.count || 0) + 1;
+    if (record.count >= this.loginMaxAttempts) {
+      record.blockedUntil = now + this.loginBlockMs;
+      record.count = 0;
+      record.windowStartedAt = now;
+    }
+    this.loginAttempts.set(key, record);
   }
 
   async hashPassword(password, salt = randomBytes(16).toString('hex')) {
@@ -208,6 +287,34 @@ export class AuthService {
     return session;
   }
 
+  _signSessionId(sessionId) {
+    return createHmac('sha256', this.sessionSecret).update(String(sessionId || '')).digest('hex');
+  }
+
+  _encodeSessionCookieValue(sessionId) {
+    return `${sessionId}.${this._signSessionId(sessionId)}`;
+  }
+
+  _decodeSessionCookieValue(rawValue) {
+    const value = String(rawValue || '');
+    const dot = value.lastIndexOf('.');
+    if (dot <= 0) {
+      return null;
+    }
+    const sessionId = value.slice(0, dot);
+    const signature = value.slice(dot + 1);
+    const expected = this._signSessionId(sessionId);
+    const providedBuffer = Buffer.from(signature, 'hex');
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    if (providedBuffer.length !== expectedBuffer.length) {
+      return null;
+    }
+    if (!timingSafeEqual(providedBuffer, expectedBuffer)) {
+      return null;
+    }
+    return sessionId;
+  }
+
   getSessionById(sessionId) {
     if (!sessionId) {
       return null;
@@ -228,12 +335,12 @@ export class AuthService {
 
   getSessionFromRequest(req) {
     const cookies = parseCookies(req.headers.cookie || '');
-    const sessionId = cookies[SESSION_COOKIE];
+    const sessionId = this._decodeSessionCookieValue(cookies[SESSION_COOKIE]);
     return this.getSessionById(sessionId);
   }
 
   buildLoginCookie(session) {
-    return buildCookie(SESSION_COOKIE, session.sessionId, {
+    return buildCookie(SESSION_COOKIE, this._encodeSessionCookieValue(session.sessionId), {
       httpOnly: true,
       secure: this.secureCookies,
       sameSite: 'Lax',

@@ -122,7 +122,7 @@ function setMessage(text, type = 'info') {
     messageTimeoutId = setTimeout(() => {
       state.message = null;
       render();
-    }, 2600);
+    }, 4200);
   }
 }
 
@@ -259,7 +259,7 @@ function startAssistantProgressStream(messageEntry) {
   messageEntry.streaming = true;
   messageEntry.text = 'Working on your request...';
   render();
-  requestChatAutoScroll();
+  requestChatAutoScroll({ force: true });
 }
 
 function stopAssistantProgressStream() {
@@ -274,7 +274,7 @@ async function streamAssistantFinalText(messageEntry, finalText) {
   messageEntry.text = String(finalText || '');
   messageEntry.streaming = false;
   render();
-  requestChatAutoScroll();
+  requestChatAutoScroll({ force: true });
 }
 
 async function api(path, { method = 'GET', body = null, signal = null } = {}) {
@@ -1467,11 +1467,7 @@ function renderAssistant() {
     <section class="card chat-shell-card">
       <div class="card-head">
         <h3>Agent Chat</h3>
-        <div class="actions">
-          <button class="btn" type="button" data-action="chat-quick" data-command="list sops">List SOPs</button>
-          <button class="btn" type="button" data-action="chat-quick" data-command="run assurance scan">Run Assurance</button>
-          <button class="btn" type="button" data-action="chat-quick" data-command="training status">Training Status</button>
-        </div>
+        <div class="muted">Use Tools for context, quick actions, and approval credentials.</div>
       </div>
       <div class="chat-thread-wrap">
         <ul class="chat-thread">${history}</ul>
@@ -1482,26 +1478,37 @@ function renderAssistant() {
           <textarea name="message" placeholder="Write a command or ask for help..."></textarea>
         </div>
         ${pendingAttachments ? `<div class="chat-pending-list">${pendingAttachments}</div>` : ''}
-        ${state.chatToolsOpen
+        <div class="chat-composer-actions">
+          <div class="chat-actions-left">
+            <button class="btn" type="button" data-action="open-chat-file-picker">${icon('attach', 'btn-icon')}<span>Attach Files</span></button>
+            <div class="chat-tools-wrap">
+              <button class="btn" type="button" data-action="toggle-chat-tools">${icon('tools', 'btn-icon')}<span>${state.chatToolsOpen ? 'Hide Tools' : 'Tools'}</span></button>
+              ${state.chatToolsOpen
     ? `
-          <div class="chat-tools-panel">
-            <div class="grid-2">
-              <label>Current SOP
-                <select data-action="set-chat-context">${contextOptions}</select>
-              </label>
-              <label>Password (only for approval e-sign)
-                <input name="password" type="password" />
-              </label>
+                <div class="chat-tools-popup">
+                  <div class="chat-tools-head"><strong>Chat Tools</strong></div>
+                  <div class="chat-tools-quick">
+                    <button class="btn" type="button" data-action="chat-quick" data-command="list sops">${icon('sops', 'btn-icon')}<span>List SOPs</span></button>
+                    <button class="btn" type="button" data-action="chat-quick" data-command="run assurance scan">${icon('automation', 'btn-icon')}<span>Run Assurance</span></button>
+                    <button class="btn" type="button" data-action="chat-quick" data-command="training status">${icon('training', 'btn-icon')}<span>Training Status</span></button>
+                  </div>
+                  <div class="grid-2">
+                    <label>Current SOP
+                      <select data-action="set-chat-context">${contextOptions}</select>
+                    </label>
+                    <label>Approval Password (optional)
+                      <input name="password" type="password" />
+                    </label>
+                  </div>
+                  <div class="actions">
+                    <button class="btn" type="button" data-action="open-chat-file-picker">${icon('attach', 'btn-icon')}<span>Add Attachments</span></button>
+                  </div>
+                </div>
+              `
+    : ''}
             </div>
           </div>
-        `
-    : ''}
-        <div class="chat-composer-actions">
-          <div class="actions">
-            <button class="btn" type="button" data-action="open-chat-file-picker">Attach Files</button>
-            <button class="btn" type="button" data-action="toggle-chat-tools">${state.chatToolsOpen ? 'Hide Tools' : 'Tools'}</button>
-          </div>
-          <button class="btn primary" type="submit">Send</button>
+          <button class="btn primary" type="submit">${icon('send', 'btn-icon')}<span>Send</span></button>
         </div>
       </form>
     </section>
@@ -2142,6 +2149,9 @@ async function syncRoute() {
   }
 
   render();
+  if (state.route.view === 'assistant') {
+    requestChatAutoScroll({ force: true });
+  }
 }
 
 async function bootstrap() {
@@ -2435,7 +2445,7 @@ async function handleSubmit(event) {
           actions: [],
         });
         queueChatHistoryPersist();
-        requestChatAutoScroll();
+        requestChatAutoScroll({ force: true });
 
         const assistantEntry = {
           role: 'assistant',
@@ -2448,7 +2458,7 @@ async function handleSubmit(event) {
         state.chatMessages.push(assistantEntry);
         state.chatPendingAttachments = [];
         render();
-        requestChatAutoScroll();
+        requestChatAutoScroll({ force: true });
         startAssistantProgressStream(assistantEntry);
 
         const startedAt = Date.now();
@@ -2476,7 +2486,7 @@ async function handleSubmit(event) {
           assistantEntry.streaming = false;
           queueChatHistoryPersist();
           render();
-          requestChatAutoScroll();
+          requestChatAutoScroll({ force: true });
           throw new Error(messageText);
         } finally {
           clearTimeout(timeoutId);
@@ -2489,7 +2499,7 @@ async function handleSubmit(event) {
           assistantEntry.text = reply;
           assistantEntry.streaming = false;
           render();
-          requestChatAutoScroll();
+          requestChatAutoScroll({ force: true });
         } else {
           await streamAssistantFinalText(assistantEntry, reply);
         }
@@ -2501,6 +2511,7 @@ async function handleSubmit(event) {
         }
         await loadSops();
         queueChatHistoryPersist();
+        state.chatToolsOpen = false;
         form.reset();
         return;
       }
@@ -2920,6 +2931,7 @@ async function handleClick(event) {
             input.focus();
           }
         }
+        state.chatToolsOpen = false;
         return;
       }
 
@@ -3108,11 +3120,28 @@ app.addEventListener('submit', (event) => {
 });
 
 app.addEventListener('click', (event) => {
+  if (
+    state.chatToolsOpen
+    && !event.target.closest('.chat-tools-wrap')
+    && !event.target.closest('[data-action="toggle-chat-tools"]')
+    && !event.target.closest('[data-action="open-chat-file-picker"]')
+  ) {
+    state.chatToolsOpen = false;
+    render();
+    return;
+  }
   void handleClick(event);
 });
 
 app.addEventListener('change', (event) => {
   void handleChange(event);
+});
+
+app.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.chatToolsOpen) {
+    state.chatToolsOpen = false;
+    render();
+  }
 });
 
 bootstrap().catch((error) => {
